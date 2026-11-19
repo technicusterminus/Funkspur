@@ -108,6 +108,8 @@ class LocalApiTest(unittest.TestCase):
         self.assertIn(b'Funkspur', body)
         self.assertIn("frame-ancestors 'none'", headers['Content-Security-Policy'])
         self.assertIsNone(headers.get('Access-Control-Allow-Origin'))
+        for path in ('/live.js', '/live-model.js'):
+            self.assertEqual(self.request('GET', path)[0], 200)
         for path in ('/README.md', '/tools/wifi_scan.py', '/.git/config', '/../index.html'):
             self.assertEqual(self.request('GET', path)[0], 404)
         self.assertEqual(self.request('GET', '/api/status', headers={'Host': 'other.test'})[0], 403)

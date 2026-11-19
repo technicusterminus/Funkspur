@@ -26,6 +26,28 @@ Desktop-Apps. Funkspur fragt keine GPS-Position ab. Ohne diese Freigabe
 bleiben manuelle Messungen und CSV nutzbar. [Microsoft zur
 Standortberechtigung für WLAN-APIs][windows-privacy]
 
+## Live-Umgebung ohne Grundriss
+
+Den lokalen Launcher starten, WLAN-Adapter auswählen und oben
+**Live-Umgebung → Jetzt scannen** öffnen. Die Tabelle zeigt die beim
+aktuellen Scan empfangenen BSSIDs mit SSID, Band, Kanal und RSSI in
+dBm, vom stärksten zum schwächsten Signal. Filtere nach SSID, BSSID
+oder Frequenzband, um die Kanalansicht einzugrenzen.
+
+- **Radios pro Kanal** zählt sichtbare BSSIDs auf ihren primären Kanälen
+  getrennt nach Frequenzband. Die Anzahl ist kein Mass für Airtime,
+  Kanalqualität, Störungen oder überlappende Kanalbreiten.
+- **Verfolgen** pinnt bis zu vier Radios im RSSI-Verlauf. Er basiert auf
+  bis zu 60 erfolgreichen Scans desselben Adapters. Ein fehlender
+  Messwert bleibt eine Lücke, kein Null- oder Mindestwert.
+- **Auto-Scan starten** führt sofort einen Scan aus und wartet danach
+  rund zwölf Sekunden bis zum nächsten. Er stoppt beim Ansichtswechsel,
+  wenn die Seite in den Hintergrund gerät oder ein Scan fehlschlägt.
+  Scans können die WLAN-Latenz kurzfristig beeinflussen.
+- Die Live-Ansicht schreibt keine Messpunkte ins Survey-Projekt und
+  speichert keine Scan-Historie auf der Festplatte. Ohne Grundriss
+  siehst du empfangene Radios, aber keine Position oder Richtung der APs.
+
 ## Eine Begehung durchführen
 
 1. **Grundriss laden.** PNG, JPEG oder WebP importieren. Optional den
@@ -107,7 +129,7 @@ Beim Live-Scan kommen `observed_at` (UTC, ISO 8601 mit Millisekunden) und
 ## Tests
 
 ```bash
-node --test tests/survey.test.cjs
+node --test tests/survey.test.cjs tests/live.test.cjs
 python3 -m unittest discover -s tests
 ```
 

@@ -8,10 +8,24 @@
 <link rel="stylesheet" href="style.css">
 <script defer src="survey.js"></script>
 <script defer src="app.js"></script>
+<script defer src="live-model.js"></script>
+<script defer src="live.js"></script>
 </head>
 <body>
-<header class="top"><div><p class="eyebrow">WLAN SITE SURVEY / V0.2</p><h1>Funkspur</h1><p>WLAN vor Ort messen und die Abdeckung auf dem Grundriss auswerten.</p></div><span class="badge">Lokal · keine Datenübertragung</span></header>
+<header class="top"><div><p class="eyebrow">WLAN SITE SURVEY / V0.3</p><h1>Funkspur</h1><p>WLAN vor Ort messen und die Abdeckung auf dem Grundriss auswerten.</p></div><span class="badge">Lokal · keine Datenübertragung</span></header>
 <main>
+<div id="view-tabs" class="view-tabs" role="tablist" aria-label="Funkspur-Ansicht">
+<button id="survey-tab" type="button" role="tab" aria-controls="survey-pane" aria-selected="true">Site Survey</button>
+<button id="live-tab" type="button" role="tab" aria-controls="live-pane" aria-selected="false" tabindex="-1">Live-Umgebung</button>
+</div>
+<section class="scanner-bar panel" aria-label="WLAN-Empfänger">
+<div><p class="eyebrow">WLAN-EMPFÄNGER</p><p id="scanner-state" class="help" role="status">Live-Scan wird geprüft …</p></div>
+<div id="scanner-controls" hidden>
+<label>WLAN-Adapter<select id="scan-adapter"></select></label>
+<button id="scanner-reload" type="button">Adapter neu laden</button>
+</div>
+</section>
+<div id="survey-pane" role="tabpanel" aria-labelledby="survey-tab">
 <div class="workspace">
 <aside class="panel controls" aria-label="Survey-Einstellungen">
 <section><h2>01 <span>Projekt</span></h2>
@@ -22,11 +36,8 @@
 <section><h2>02 <span>Messpunkt</span></h2>
 <p class="help">Position im Plan auswählen oder X/Y in Prozent eingeben. Für einen Scan am Messort stehen bleiben.</p>
 <div class="live-scan" aria-label="Live-WLAN-Erfassung">
-<p id="scanner-state" class="help" role="status">Live-Scan wird geprüft …</p>
-<div id="scanner-controls" hidden>
-<label>WLAN-Adapter<select id="scan-adapter"></select></label>
-<div class="actions"><button id="scan-start" class="primary" type="button">Scan am Messort</button><button id="scanner-reload" type="button">Adapter neu laden</button></div>
-</div>
+<p id="survey-scan-state" class="help" role="status">Für die Messung einen eigenen Grundriss und den Messort wählen.</p>
+<button id="scan-start" class="primary" type="button">Scan am Messort</button>
 <div id="scan-results" hidden>
 <label>Scan nach SSID oder BSSID filtern<input id="scan-filter" type="search" placeholder="z. B. Office-WLAN"></label>
 <p id="scan-count" class="help" aria-live="polite"></p>
@@ -65,6 +76,27 @@
 <div class="scroll"><table><thead><tr><th>#</th><th>X / Y (%)</th><th>RSSI</th><th>SSID / Radio</th><th>Kanal</th><th>Herkunft / Notiz</th><th>Aktionen</th></tr></thead><tbody id="points"></tbody></table></div>
 </section>
 </div>
+</div>
+<section id="live-pane" role="tabpanel" aria-labelledby="live-tab" hidden>
+<div class="panel live-overview">
+<div class="view-head"><div><p class="eyebrow">OHNE GRUNDRISS</p><h2>WLAN in deiner Umgebung</h2></div>
+<div class="actions live-actions"><button id="live-scan" class="primary" type="button">Jetzt scannen</button><button id="live-auto" type="button" aria-pressed="false">Auto-Scan starten</button></div></div>
+<p id="live-status" role="status" aria-live="polite">Warte auf deinen ersten Scan.</p>
+<div class="stats live-stats"><div><small>Sichtbare Radios / gesamt</small><strong id="live-count">–</strong></div><div><small>Stärkster sichtbarer RSSI</small><strong id="live-strongest">–</strong></div><div><small>Letzter erfolgreicher Scan</small><strong id="live-time">–</strong></div></div>
+<div class="live-filters"><label>SSID oder BSSID filtern<input id="live-filter" type="search" placeholder="z. B. Office oder 02:00:00"></label><label>Frequenzband<select id="live-band"><option value="">Alle Bänder</option><option>2.4 GHz</option><option>5 GHz</option><option>6 GHz</option><option>Unbekannt</option></select></label></div>
+<div class="scroll live-table"><table><thead><tr><th>Verfolgen</th><th>SSID</th><th>BSSID</th><th>Band</th><th>Kanal</th><th>RSSI</th></tr></thead><tbody id="live-rows"></tbody></table></div>
+</div>
+<div class="live-detail">
+<section class="panel"><p class="eyebrow">AKTUELLER SCAN</p><h2>Radios pro Kanal</h2>
+<p class="help">Anzahl sichtbarer BSSIDs pro primärem Kanal im aktuellen Filter. Das ist keine Airtime- oder Störungsmessung.</p>
+<div id="live-channels"></div></section>
+<section class="panel"><div class="view-head"><div><p class="eyebrow">LETZTE 60 SCANS</p><h2>RSSI-Verlauf</h2></div><button id="live-clear" type="button">Verlauf leeren</button></div>
+<p class="help">Bis zu vier Radios verfolgen. Eine Lücke bedeutet, dass das Radio in einem Scan nicht gemessen wurde.</p>
+<div id="live-legend" class="live-legend"></div><div id="live-chart"></div>
+</section>
+</div>
+<p class="help live-note">Die Ansicht zeigt, welche WLAN-Radios dein Adapter hört. Sie zeigt keine Richtung, Entfernung, Airtime oder Nicht-WLAN-Störer. Auto-Scan ist optional und pausiert, wenn du diese Ansicht verlässt.</p>
+</section>
 </main>
 <footer>RSSI misst Signalstärke. Kein Nachweis für SNR, Durchsatz oder Roaming-Qualität. Projekte und Messdaten vor dem Schliessen speichern.</footer>
 </body></html>

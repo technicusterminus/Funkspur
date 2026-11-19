@@ -351,10 +351,17 @@ $('demo').onclick=handle(async()=>{
 function scannerMessage(text) {
   $('scanner-state').textContent=text;
 }
+function pointScannerMessage(text) {
+  $('survey-scan-state').textContent=text;
+}
+function scannerAvailable() {
+  return Boolean(scanToken && $('scan-adapter').value);
+}
 function updateScanState() {
-  $('scan-start').disabled=!scanToken||!state.image||state.demo||!$('scan-adapter').value||scanBusy||Boolean(pins)||editing!==null;
+  $('scan-start').disabled=!scannerAvailable()||!state.image||state.demo||scanBusy||Boolean(pins)||editing!==null;
   $('scanner-reload').disabled=scanBusy;
   $('scan-adapter').disabled=scanBusy;
+  window.FunkspurLive?.scannerChanged();
 }
 function clearScan() {
   scanGeneration++;
@@ -377,6 +384,7 @@ async function checkScanner() {
   $('scanner-controls').hidden=false;
   clearScan();
   const select=$('scan-adapter'), old=select.value;
+  window.FunkspurLive?.pause();
   scanToken='';select.replaceChildren();updateScanState();
   try {
     const data=await scanRequest('/api/status');
@@ -386,10 +394,20 @@ async function checkScanner() {
     }
     if(data.adapters.some(x=>x.id===old)) select.value=old;
     scanToken=data.token;
-    scannerMessage(data.adapters.length ? 'Live-Scan bereit. Zuerst einen eigenen Grundriss laden und den Messort setzen.' :
+    if(select.value!==old) window.FunkspurLive?.adapterChanged();
+    scannerMessage(data.adapters.length ? 'Live-Scan bereit. Ohne Grundriss direkt zur Live-Umgebung wechseln.' :
       'Kein WLAN-Adapter gefunden. WLAN einschalten und Adapter neu laden.');
   } catch(error) { scannerMessage(error.message+' Manuelle Messung und CSV bleiben verfügbar.'); }
   updateScanState();
+}
+async function runAdapterScan() {
+  if(scanBusy) throw new Error('Ein WLAN-Scan läuft bereits.');
+  if(!scannerAvailable()) throw new Error('Kein WLAN-Adapter verbunden.');
+  scanBusy=true;updateScanState();
+  try {
+    return await scanRequest('/api/scan',{method:'POST',headers:{'Content-Type':'application/json',
+      'X-Funkspur-Token':scanToken},body:JSON.stringify({adapter:$('scan-adapter').value})});
+  } finally {scanBusy=false;updateScanState();}
 }
 const currentPosition = () => S.coordinates({x_pct:field('x_pct').value,y_pct:field('y_pct').value});
 function visibleRadios() {
@@ -418,25 +436,23 @@ function updateRadioCount() {
   $('scan-save').disabled=!n;
 }
 $('scanner-reload').onclick=handle(checkScanner);
-$('scan-adapter').onchange=clearScan;
+$('scan-adapter').onchange=()=>{clearScan();window.FunkspurLive?.adapterChanged();};
 $('scan-filter').oninput=renderRadios;
 for(const k of ['x_pct','y_pct']) field(k).addEventListener('input',clearScan);
 $('scan-start').onclick=handle(async()=>{
   if($('scan-start').disabled) return;
   const pos=currentPosition();
   clearScan();const generation=scanGeneration;
-  scanBusy=true;updateScanState();scannerMessage('Scan läuft. Am Messort stehen bleiben …');
+  pointScannerMessage('Scan läuft. Am Messort stehen bleiben …');
   try {
-    const data=await scanRequest('/api/scan',{method:'POST',headers:{'Content-Type':'application/json',
-      'X-Funkspur-Token':scanToken},body:JSON.stringify({adapter:$('scan-adapter').value})});
-    if(generation!==scanGeneration) {scannerMessage('Position geändert. Am neuen Messort erneut scannen.');return;}
+    const data=await runAdapterScan();
+    if(generation!==scanGeneration) {pointScannerMessage('Position geändert. Am neuen Messort erneut scannen.');return;}
     const radios=data.radios.map(p=>S.measurement({...p,...pos,source:data.source}));
-    if(!radios.length) { scannerMessage('Keine frischen dBm-Messwerte gefunden. Am Messort erneut versuchen.');return; }
+    if(!radios.length) { pointScannerMessage('Keine frischen dBm-Messwerte gefunden. Am Messort erneut versuchen.');return; }
     pendingScan={radios,selected:new Set(),captured:Date.now()};
-    scannerMessage('Scan abgeschlossen. Gewünschte Radios auswählen und speichern.');
+    pointScannerMessage('Scan abgeschlossen. Gewünschte Radios auswählen und speichern.');
     renderRadios();
-  } catch(error) {scannerMessage(error.message);throw error;}
-  finally {scanBusy=false;updateScanState();}
+  } catch(error) {pointScannerMessage(error.message);throw error;}
 });
 $('scan-all').onclick=()=>{
   if(!pendingScan)return;
@@ -447,7 +463,7 @@ $('scan-save').onclick=handle(()=>{
   if(!pendingScan)return;
   if(Date.now()-pendingScan.captured>scanLifetime) {
     clearScan();
-    scannerMessage('Der Scan ist älter als eine Minute. Bitte am Messort erneut scannen.');
+    pointScannerMessage('Der Scan ist älter als eine Minute. Bitte am Messort erneut scannen.');
     return;
   }
   const note=field('note').value;
@@ -459,7 +475,7 @@ $('scan-save').onclick=handle(()=>{
   clearScan();anchor=null;
   for(const k of ['x_pct','y_pct','rssi_dbm','note']) field(k).value='';
   refresh();
-  scannerMessage(values.length+' WLAN-Messwerte gespeichert. Nächsten Messort auf dem Grundriss wählen.');
+  pointScannerMessage(values.length+' WLAN-Messwerte gespeichert. Nächsten Messort auf dem Grundriss wählen.');
   updateStatus(values.length+' echte RSSI-Messwerte gespeichert.');
 });
 refresh();
