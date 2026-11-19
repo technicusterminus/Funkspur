@@ -4,6 +4,9 @@ const $ = id => document.getElementById(id);
 const form = $('point-form'), map = $('map'), ctx = map.getContext('2d');
 const state = {name:'', image:null, data:'', points:[], scale:null, demo:false};
 let editing = null, anchor = null, pins = null, raster = null, previousKey = '';
+let scanToken = '', scanBusy = false, pendingScan = null, scanGeneration = 0;
+const scanLifetime = 60_000;
+const sources = {'manual':'Manuell', 'linux-iw':'Linux-Live-Scan', 'windows-wlanapi':'Windows-Live-Scan', 'demo':'Demo'};
 const num = (x, digits=1) => new Intl.NumberFormat('de-CH',{maximumFractionDigits:digits}).format(x);
 const nameOf = p => (p.ssid || 'Ohne SSID') + ' · ' + p.band + ' · ' + (p.bssid || 'ohne BSSID');
 const field = key => form.elements.namedItem(key);
@@ -48,7 +51,7 @@ function setProject(project, prefs={}) {
   previousKey=prefs.series ?? '';
   resetEdit(true);
   anchor=null; pins=null;
-  refresh();
+  clearScan(); refresh();
 }
 function canReplace() {
   return !state.image || window.confirm('Aktuelles Projekt im Browser ersetzen? Nicht exportierte Änderungen gehen verloren.');
@@ -58,18 +61,36 @@ function resetEdit(full=false) {
   $('save-point').textContent='Messpunkt hinzufügen';
   $('cancel-edit').hidden=true;
   if (full) form.reset();
+  updateScanState();
 }
 function activatePoint(i) {
   const p=state.points[i];
-  for(const k of S.columns) field(k).value=p[k] ?? '';
+  clearScan();
+  for(const k of S.columns) if(field(k)) field(k).value=p[k] ?? '';
   editing=i;
   $('save-point').textContent='Änderungen speichern';
   $('cancel-edit').hidden=false;
+  updateScanState();
   field('rssi_dbm').focus();
   draw();
 }
-const groups = () => new Map(state.points.map(p=>[S.groupKey(p),nameOf(p)]));
-const filtered = () => state.points.flatMap((p,i)=>S.groupKey(p)===$('series').value ? [{...p,i}] : []);
+function groups() {
+  const networks = new Map();
+  for(const p of state.points) {
+    if(!p.bssid || !p.ssid) continue;
+    const key=S.bestKey(p);
+    if(!networks.has(key)) networks.set(key,{label:p.ssid+' · '+p.band+' · stärkstes gemessenes Radio',radios:new Set()});
+    networks.get(key).radios.add(p.bssid);
+  }
+  const choices=new Map([...networks].filter(([,n])=>n.radios.size>1).map(([id,n])=>[id,n.label]));
+  for(const p of state.points) choices.set(S.groupKey(p),nameOf(p));
+  return choices;
+}
+function filtered() {
+  const series=$('series').value;
+  return series.startsWith('best:') ? S.strongestAtLocations(state.points,series) :
+    state.points.flatMap((p,i)=>S.groupKey(p)===series ? [{...p,i}] : []);
+}
 const palette = [[234,83,109],[240,154,85],[236,201,87],[59,200,153]];
 const level = v => v < -75 ? 0 : v < -67 ? 1 : v < -55 ? 2 : 3;
 function invalidate(){raster=null;}
@@ -115,6 +136,7 @@ function draw(points=filtered(), destination=ctx, exportImage=false) {
     $('map-note').textContent=hasHeat ? 'Farbflächen sind Schätzwerte. Ungefärbte Flächen sind nicht bewertet. Wände werden nicht modelliert.' :
       'Keine Heatmap sichtbar. Sie benötigt mindestens drei nicht kollineare Messorte innerhalb des Radius und bleibt auf die umschlossene Messfläche begrenzt.';
     if(!$('show-heat').checked) $('map-note').textContent='Heatmap ausgeblendet. Die Markierungen zeigen die tatsächlichen Messorte.';
+    if($('series').value.startsWith('best:')) $('map-note').textContent += ' Je Ort zählt das stärkste erfasste Radio. Ohne Messwert keine Aussage.';
   }
   const unit=Math.max(1,Math.max(w,h)/800);
   const pixel=p=>S.pixels(p,w,h);
@@ -152,6 +174,7 @@ function refresh() {
   for(const id of ['save-project','calibrate','save-point','load-csv','save-png']) $(id).disabled=!enabled;
   $('save-csv').disabled=state.points.length===0;
   $('series').disabled=all.size===0;
+  updateScanState();
   $('count').textContent=String(points.length);
   const ordered=points.map(p=>p.rssi_dbm).sort((a,b)=>a-b);
   const mid=Math.floor(ordered.length/2);
@@ -168,7 +191,7 @@ function refresh() {
   } else {
     const rows=points.map(p=>{
       const tr=document.createElement('tr');
-      for(const value of [p.i+1,num(p.x_pct,2)+' / '+num(p.y_pct,2),num(p.rssi_dbm)+' dBm',nameOf(p),p.channel??'–',p.note||'–'])
+      for(const value of [p.i+1,num(p.x_pct,2)+' / '+num(p.y_pct,2),num(p.rssi_dbm)+' dBm',nameOf(p),p.channel??'–',[sources[p.source]||p.source,p.observed_at ? new Date(p.observed_at).toLocaleString('de-CH') : '',p.note].filter(Boolean).join(' · ')||'–'])
         tr.append(assign(document.createElement('td'),String(value)));
       const actions=document.createElement('td');
       for(const [label,fn] of [['Bearbeiten',()=>activatePoint(p.i)],['Löschen',()=>{
@@ -188,13 +211,18 @@ form.addEventListener('submit',handle(e=>{
   e.preventDefault();
   if(!state.image) return;
   if(editing===null && state.points.length>=S.maxPoints) throw new Error('Messpunktlimit erreicht.');
-  const p=S.measurement(Object.fromEntries(new FormData(form)));
+  const data=Object.fromEntries(new FormData(form)), prior=editing===null ? null : state.points[editing];
+  // Preserve acquisition provenance only when no measurement field was edited.
+  const candidate=S.measurement({...data,source:state.demo ? 'demo' : 'manual'});
+  const unchanged=prior && S.columns.filter(k=>!['note','source','observed_at'].includes(k))
+    .every(k=>prior[k]===candidate[k]);
+  const p=unchanged ? {...prior,note:candidate.note} : candidate;
   if(editing===null) state.points.push(p); else state.points[editing]=p;
   previousKey=S.groupKey(p);
-  resetEdit(); anchor=null; field('rssi_dbm').value=''; field('note').value='';
+  clearScan(); resetEdit(); anchor=null; field('rssi_dbm').value=''; field('note').value='';
   refresh(); updateStatus('Messpunkt gespeichert.');
 }));
-$('cancel-edit').onclick=()=>{resetEdit(true);anchor=null;draw();};
+$('cancel-edit').onclick=()=>{clearScan();resetEdit(true);anchor=null;draw();};
 map.addEventListener('click',handle(e=>{
   const rect=map.getBoundingClientRect();
   const point={x_pct:Math.round(10000*(e.clientX-rect.left)/rect.width)/100,y_pct:Math.round(10000*(e.clientY-rect.top)/rect.height)/100};
@@ -211,12 +239,13 @@ map.addEventListener('click',handle(e=>{
     if(!old) $('radius').value=12;
     refresh();updateStatus('Massstab gespeichert.');return;
   }
-  anchor=point; field('x_pct').value=point.x_pct;field('y_pct').value=point.y_pct;
-  draw();field('rssi_dbm').focus({preventScroll:true});
+  clearScan(); anchor=point; field('x_pct').value=point.x_pct;field('y_pct').value=point.y_pct;
+  draw();
+  if($('scan-start').disabled) field('rssi_dbm').focus({preventScroll:true});
 }));
 $('calibrate').onclick=()=>{
   if(pins){pins=null;updateStatus('Kalibrierung abgebrochen.');}
-  else {pins={};anchor=null;updateStatus('Ersten Kalibrierpunkt im Grundriss wählen.');}
+  else {clearScan();pins={};anchor=null;updateStatus('Ersten Kalibrierpunkt im Grundriss wählen.');}
   refresh();
 };
 $('series').onchange=()=>{resetEdit();anchor=null;refresh();};
@@ -283,7 +312,7 @@ $('save-png').onclick=handle(async()=>{
   g.fillStyle='#eff6ff';g.font='bold 17px system-ui';
   g.fillText((state.demo ? 'DEMO / SYNTHETISCHE MESSWERTE · ' : '')+state.name,13,map.height+23,out.width-26);
   g.font='13px system-ui';
-  g.fillText((points[0] ? nameOf(points[0]) : 'Keine Messreihe')+' · '+points.length+' Messpunkte',13,map.height+43,out.width-26);
+  g.fillText(($('series').selectedOptions[0]?.textContent || 'Keine Messreihe')+' · '+points.length+' Messpunkte',13,map.height+43,out.width-26);
   let x=13;
   for(const [i,label] of ['< −75','−75 bis < −67','−67 bis < −55','≥ −55 dBm'].entries()) {
     g.fillStyle='rgb('+palette[i].join(',')+')';g.fillRect(x,map.height+54,10,10);
@@ -313,9 +342,125 @@ $('demo').onclick=handle(async()=>{
   const points=[[14,24,-49],[30,20,-55],[49,23,-62],[69,22,-69],[86,25,-74],
     [13,55,-53],[29,55,-58],[49,52,-64],[70,51,-70],[88,55,-79],
     [17,78,-59],[34,78,-63],[53,78,-72],[71,78,-77],[88,78,-84]].map(([x,y,r])=>S.measurement({
-    x_pct:x,y_pct:y,rssi_dbm:r,ssid:'Survey-Demo',band:'5 GHz',bssid:'02:00:00:00:00:01',channel:36,note:'Synthetischer Demowert'
+    x_pct:x,y_pct:y,rssi_dbm:r,ssid:'Survey-Demo',band:'5 GHz',bssid:'02:00:00:00:00:01',channel:36,note:'Synthetischer Demowert',source:'demo'
   }));
   setProject({name:'Beispieletage',image,data,points,scale:null,demo:true},{radius:43});
   updateStatus('Demo geladen. Für eine echte Begehung einen eigenen Grundriss laden.');
 });
+
+function scannerMessage(text) {
+  $('scanner-state').textContent=text;
+}
+function updateScanState() {
+  $('scan-start').disabled=!scanToken||!state.image||state.demo||!$('scan-adapter').value||scanBusy||Boolean(pins)||editing!==null;
+  $('scanner-reload').disabled=scanBusy;
+  $('scan-adapter').disabled=scanBusy;
+}
+function clearScan() {
+  scanGeneration++;
+  pendingScan=null;
+  $('scan-results').hidden=true;
+  $('scan-radios').replaceChildren();
+}
+async function scanRequest(path, init) {
+  const response=await fetch(path,{cache:'no-store',signal:AbortSignal.timeout(45_000),...init});
+  if(!response.headers.get('content-type')?.includes('application/json')) throw new Error('Lokaler Funkspur-Dienst nicht gefunden.');
+  const payload=await response.json();
+  if(!response.ok) throw new Error(payload.error||'WLAN-Dienst antwortet nicht.');
+  return payload;
+}
+async function checkScanner() {
+  if(location.hostname!=='127.0.0.1'||location.protocol!=='http:') {
+    scannerMessage('Live-Scan: Unter Windows start-windows.cmd öffnen, unter Linux python3 run_funkspur.py. Manuelle Messung und CSV funktionieren auch hier.');
+    return;
+  }
+  $('scanner-controls').hidden=false;
+  clearScan();
+  const select=$('scan-adapter'), old=select.value;
+  scanToken='';select.replaceChildren();updateScanState();
+  try {
+    const data=await scanRequest('/api/status');
+    for(const item of data.adapters) {
+      const option=document.createElement('option');
+      option.value=item.id;option.textContent=item.name;select.append(option);
+    }
+    if(data.adapters.some(x=>x.id===old)) select.value=old;
+    scanToken=data.token;
+    scannerMessage(data.adapters.length ? 'Live-Scan bereit. Zuerst einen eigenen Grundriss laden und den Messort setzen.' :
+      'Kein WLAN-Adapter gefunden. WLAN einschalten und Adapter neu laden.');
+  } catch(error) { scannerMessage(error.message+' Manuelle Messung und CSV bleiben verfügbar.'); }
+  updateScanState();
+}
+const currentPosition = () => S.coordinates({x_pct:field('x_pct').value,y_pct:field('y_pct').value});
+function visibleRadios() {
+  const q=$('scan-filter').value.trim().toLowerCase();
+  return pendingScan?.radios.flatMap((p,i)=>(p.ssid+' '+p.bssid).toLowerCase().includes(q) ? [{p,i}] : []) || [];
+}
+function renderRadios() {
+  if(!pendingScan) return;
+  const visible=visibleRadios(), box=$('scan-radios'), selected=pendingScan.selected;
+  box.replaceChildren(...visible.map(({p,i})=>{
+    const label=document.createElement('label'), input=document.createElement('input'), text=document.createElement('span');
+    input.type='checkbox';input.checked=selected.has(i);
+    text.textContent=(p.ssid||'(Versteckte SSID)')+' · '+p.band+(p.channel ? ' K'+p.channel : '')+
+      ' · '+num(p.rssi_dbm)+' dBm · '+p.bssid;
+    input.onchange=()=>{if(input.checked)selected.add(i);else selected.delete(i);updateRadioCount();};
+    label.append(input,text);return label;
+  }));
+  $('scan-results').hidden=false;
+  updateRadioCount();
+}
+function updateRadioCount() {
+  const visible=visibleRadios();
+  const n=visible.filter(({i})=>pendingScan.selected.has(i)).length;
+  $('scan-count').textContent=visible.length+' sichtbar · '+n+' für diesen Messort ausgewählt';
+  $('scan-all').disabled=!visible.length;
+  $('scan-save').disabled=!n;
+}
+$('scanner-reload').onclick=handle(checkScanner);
+$('scan-adapter').onchange=clearScan;
+$('scan-filter').oninput=renderRadios;
+for(const k of ['x_pct','y_pct']) field(k).addEventListener('input',clearScan);
+$('scan-start').onclick=handle(async()=>{
+  if($('scan-start').disabled) return;
+  const pos=currentPosition();
+  clearScan();const generation=scanGeneration;
+  scanBusy=true;updateScanState();scannerMessage('Scan läuft. Am Messort stehen bleiben …');
+  try {
+    const data=await scanRequest('/api/scan',{method:'POST',headers:{'Content-Type':'application/json',
+      'X-Funkspur-Token':scanToken},body:JSON.stringify({adapter:$('scan-adapter').value})});
+    if(generation!==scanGeneration) {scannerMessage('Position geändert. Am neuen Messort erneut scannen.');return;}
+    const radios=data.radios.map(p=>S.measurement({...p,...pos,source:data.source}));
+    if(!radios.length) { scannerMessage('Keine frischen dBm-Messwerte gefunden. Am Messort erneut versuchen.');return; }
+    pendingScan={radios,selected:new Set(),captured:Date.now()};
+    scannerMessage('Scan abgeschlossen. Gewünschte Radios auswählen und speichern.');
+    renderRadios();
+  } catch(error) {scannerMessage(error.message);throw error;}
+  finally {scanBusy=false;updateScanState();}
+});
+$('scan-all').onclick=()=>{
+  if(!pendingScan)return;
+  for(const {i} of visibleRadios()) pendingScan.selected.add(i);
+  renderRadios();
+};
+$('scan-save').onclick=handle(()=>{
+  if(!pendingScan)return;
+  if(Date.now()-pendingScan.captured>scanLifetime) {
+    clearScan();
+    scannerMessage('Der Scan ist älter als eine Minute. Bitte am Messort erneut scannen.');
+    return;
+  }
+  const note=field('note').value;
+  const values=visibleRadios().filter(({i})=>pendingScan.selected.has(i)).map(({p})=>S.measurement({...p,note}));
+  if(!values.length)return;
+  if(state.points.length+values.length>S.maxPoints)throw new Error('Messpunktlimit erreicht.');
+  state.points.push(...values);
+  previousKey=$('series').value || S.groupKey(values[0]);
+  clearScan();anchor=null;
+  for(const k of ['x_pct','y_pct','rssi_dbm','note']) field(k).value='';
+  refresh();
+  scannerMessage(values.length+' WLAN-Messwerte gespeichert. Nächsten Messort auf dem Grundriss wählen.');
+  updateStatus(values.length+' echte RSSI-Messwerte gespeichert.');
+});
 refresh();
+checkScanner();

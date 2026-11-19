@@ -4,7 +4,7 @@
   else root.Survey = build();
 })(globalThis, function () {
   'use strict';
-  const columns = ['x_pct','y_pct','rssi_dbm','ssid','band','bssid','channel','note'];
+  const columns = ['x_pct','y_pct','rssi_dbm','ssid','band','bssid','channel','note','observed_at','source'];
   const bands = ['2.4 GHz','5 GHz','6 GHz','Unbekannt'];
   const maxPoints = 5000;
   const bounded = (value, min, max, label) => {
@@ -26,10 +26,26 @@
     if (bssid && !/^(?:[a-f\d]{2}:){5}[a-f\d]{2}$/.test(bssid)) throw new Error('BSSID muss wie aa:bb:cc:dd:ee:ff aussehen.');
     const channel = raw.channel === '' || raw.channel == null ? null : bounded(raw.channel, 1, 233, 'Kanal');
     if (channel !== null && !Number.isInteger(channel)) throw new Error('Kanal muss ganzzahlig sein.');
-    return {x_pct:bounded(raw.x_pct,0,100,'X'),y_pct:bounded(raw.y_pct,0,100,'Y'),
-      rssi_dbm:bounded(raw.rssi_dbm,-127,0,'RSSI'),ssid:string('ssid', 100),band,bssid,channel,note:string('note', 500)};
+    const observed_at = string('observed_at', 24), source = string('source', 40);
+    if (observed_at && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(observed_at) ||
+        !Number.isFinite(Date.parse(observed_at)) || new Date(observed_at).toISOString() !== observed_at))
+      throw new Error('Zeitstempel muss UTC im Format ISO 8601 mit Millisekunden sein.');
+    if (source && !/^[a-z][a-z0-9-]*$/.test(source)) throw new Error('Ungültige Messquelle.');
+    return {...coordinates(raw), rssi_dbm:bounded(raw.rssi_dbm,-127,0,'RSSI'),
+      ssid:string('ssid',100),band,bssid,channel,note:string('note',500),observed_at,source};
   }
+  const coordinates = p => ({x_pct:bounded(p.x_pct,0,100,'X'),y_pct:bounded(p.y_pct,0,100,'Y')});
   const groupKey = p => JSON.stringify([p.ssid,p.band,p.bssid]);
+  const bestKey = p => 'best:' + JSON.stringify([p.ssid,p.band]);
+  function strongestAtLocations(points, key) {
+    const byPosition = new Map();
+    points.forEach((p,i) => {
+      if (!p.bssid || bestKey(p) !== key) return;
+      const pos = JSON.stringify([p.x_pct,p.y_pct]);
+      if (!byPosition.has(pos) || p.rssi_dbm > byPosition.get(pos).rssi_dbm) byPosition.set(pos, {...p,i});
+    });
+    return [...byPosition.values()];
+  }
   const formula = /^[\s\uFEFF]*[=+@-]|^[\t\r\n]/u;
   const guard = s => s.startsWith("'") || formula.test(s) ? "'" + s : s;
   const unguard = s => s.startsWith("''") || (s.startsWith("'") && formula.test(s.slice(1))) ? s.slice(1) : s;
@@ -130,5 +146,5 @@
     }
     return count<3 ? null : exact ?? sum/weight;
   }
-  return {measurement,calibration,groupKey,fromCsv,toCsv,pixels,prepare,estimate,columns,bands,maxPoints,guard};
+  return {measurement,coordinates,calibration,groupKey,bestKey,strongestAtLocations,fromCsv,toCsv,pixels,prepare,estimate,columns,bands,maxPoints,guard};
 });

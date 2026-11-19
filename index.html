@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'">
 <title>Funkspur · WLAN Site Survey</title>
 <link rel="stylesheet" href="style.css">
 <script defer src="survey.js"></script>
 <script defer src="app.js"></script>
 </head>
 <body>
-<header class="top"><div><p class="eyebrow">WLAN SITE SURVEY / V0.1</p><h1>Funkspur</h1><p>Messpunkte setzen. Abdeckung auf dem Grundriss einschätzen.</p></div><span class="badge">Lokal · keine Datenübertragung</span></header>
+<header class="top"><div><p class="eyebrow">WLAN SITE SURVEY / V0.2</p><h1>Funkspur</h1><p>WLAN vor Ort messen und die Abdeckung auf dem Grundriss auswerten.</p></div><span class="badge">Lokal · keine Datenübertragung</span></header>
 <main>
 <div class="workspace">
 <aside class="panel controls" aria-label="Survey-Einstellungen">
@@ -20,7 +20,20 @@
 <div class="actions"><button id="save-project" type="button">Projekt speichern</button><button id="calibrate" type="button">Massstab setzen</button></div><p id="scale" class="help">Kein Massstab gesetzt</p>
 </section>
 <section><h2>02 <span>Messpunkt</span></h2>
-<p class="help">Position im Plan auswählen oder X/Y in Prozent eingeben.</p>
+<p class="help">Position im Plan auswählen oder X/Y in Prozent eingeben. Für einen Scan am Messort stehen bleiben.</p>
+<div class="live-scan" aria-label="Live-WLAN-Erfassung">
+<p id="scanner-state" class="help" role="status">Live-Scan wird geprüft …</p>
+<div id="scanner-controls" hidden>
+<label>WLAN-Adapter<select id="scan-adapter"></select></label>
+<div class="actions"><button id="scan-start" class="primary" type="button">Scan am Messort</button><button id="scanner-reload" type="button">Adapter neu laden</button></div>
+</div>
+<div id="scan-results" hidden>
+<label>Scan nach SSID oder BSSID filtern<input id="scan-filter" type="search" placeholder="z. B. Office-WLAN"></label>
+<p id="scan-count" class="help" aria-live="polite"></p>
+<div id="scan-radios" class="scan-radios" aria-label="Gefundene Access Points"></div>
+<div class="actions"><button id="scan-all" type="button">Sichtbare wählen</button><button id="scan-save" class="primary" type="button">Auswahl speichern</button></div>
+</div>
+</div>
 <form id="point-form">
 <div class="row"><label>X %<input name="x_pct" type="number" required min="0" max="100" step="any"></label><label>Y %<input name="y_pct" type="number" required min="0" max="100" step="any"></label></div>
 <div class="row"><label>RSSI (dBm)<input name="rssi_dbm" type="number" required min="-127" max="0" step="any" placeholder="-67"></label><label>Band<select name="band"><option>Unbekannt</option><option>2.4 GHz</option><option>5 GHz</option><option>6 GHz</option></select></label></div>
@@ -31,7 +44,7 @@
 </form>
 </section>
 <section><h2>03 <span>Ansicht</span></h2>
-<label>Radio / Messreihe<select id="series"></select></label>
+<label>Abdeckung / Messreihe<select id="series"></select></label>
 <div class="row"><label>Zielwert (dBm)<input id="threshold" type="number" min="-127" max="0" value="-67"></label><label><span id="radius-label">Radius (% kurzer Seite)</span><input id="radius" type="number" min="0.1" max="1000" step="any" value="35"></label></div>
 <label class="check"><input id="show-heat" type="checkbox" checked> Heatmap anzeigen</label>
 <div class="actions"><button id="load-csv" type="button">CSV importieren</button><input id="csv-file" type="file" accept=".csv,text/csv" hidden><button id="save-csv" type="button">CSV exportieren</button></div>
@@ -49,7 +62,7 @@
 <p id="map-note" class="help">Farbflächen sind geschätzte Werte zwischen Messpunkten. Ungefärbte Flächen sind nicht bewertet. Wände werden nicht modelliert.</p>
 <p id="status" role="status" aria-live="polite"></p>
 <h2 class="data-title">Messliste</h2>
-<div class="scroll"><table><thead><tr><th>#</th><th>X / Y (%)</th><th>RSSI</th><th>SSID / Radio</th><th>Kanal</th><th>Notiz</th><th>Aktionen</th></tr></thead><tbody id="points"></tbody></table></div>
+<div class="scroll"><table><thead><tr><th>#</th><th>X / Y (%)</th><th>RSSI</th><th>SSID / Radio</th><th>Kanal</th><th>Herkunft / Notiz</th><th>Aktionen</th></tr></thead><tbody id="points"></tbody></table></div>
 </section>
 </div>
 </main>

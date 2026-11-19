@@ -40,3 +40,16 @@ test('averages repeated readings at exactly the same site',()=>{
   const model=S.prepare([point(0,0,-50),point(100,0,-65),point(0,100,-80),point(0,0,-60)],100,100,160);
   assert.equal(S.estimate(model,0,0),-55);
 });
+test('best AP view selects one actual reading per exact position, SSID and band',()=>{
+  const a={ssid:'Lab',band:'5 GHz',bssid:'02:00:00:00:00:01'};
+  const b={...a,bssid:'02:00:00:00:00:02'};
+  const readings=[point(10,20,-70,a),point(10,20,-59,b),point(11,20,-64,a),
+    point(10,20,-50,{...b,band:'6 GHz'}),point(10,20,-34,{...b,bssid:''})];
+  assert.deepEqual(S.strongestAtLocations(readings,S.bestKey(a)).map(x=>[x.i,x.rssi_dbm]),[[1,-59],[2,-64]]);
+});
+test('keeps true measurement provenance in CSV and rejects malformed timestamps',()=>{
+  const measure=point(10,15,-59,{source:'windows-wlanapi',observed_at:'2026-11-19T08:51:00.000Z'});
+  assert.deepEqual(S.fromCsv(S.toCsv([measure])),[measure]);
+  assert.throws(()=>point(10,15,-59,{observed_at:'2026-11-31T08:51:00.000Z'}));
+  assert.throws(()=>point(10,15,-59,{source:'=not a source'}));
+});
