@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.survey.json
+# Local survey measurements and floor plans are not project sources.
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.webp

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'">
+<title>Funkspur · WLAN Site Survey</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="survey.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="top"><div><p class="eyebrow">WLAN SITE SURVEY / V0.1</p><h1>Funkspur</h1><p>Messpunkte setzen. Abdeckung auf dem Grundriss einschätzen.</p></div><span class="badge">Lokal · keine Datenübertragung</span></header>
+<main>
+<div class="workspace">
+<aside class="panel controls" aria-label="Survey-Einstellungen">
+<section><h2>01 <span>Projekt</span></h2>
+<label for="plan">Grundriss als Bild</label><input id="plan" type="file" accept="image/png,image/jpeg,image/webp">
+<div class="actions"><button id="demo" type="button">Demo laden</button><button id="load-project" type="button">Projekt öffnen</button><input id="project-file" type="file" accept=".json,application/json" hidden></div>
+<div class="actions"><button id="save-project" type="button">Projekt speichern</button><button id="calibrate" type="button">Massstab setzen</button></div><p id="scale" class="help">Kein Massstab gesetzt</p>
+</section>
+<section><h2>02 <span>Messpunkt</span></h2>
+<p class="help">Position im Plan auswählen oder X/Y in Prozent eingeben.</p>
+<form id="point-form">
+<div class="row"><label>X %<input name="x_pct" type="number" required min="0" max="100" step="any"></label><label>Y %<input name="y_pct" type="number" required min="0" max="100" step="any"></label></div>
+<div class="row"><label>RSSI (dBm)<input name="rssi_dbm" type="number" required min="-127" max="0" step="any" placeholder="-67"></label><label>Band<select name="band"><option>Unbekannt</option><option>2.4 GHz</option><option>5 GHz</option><option>6 GHz</option></select></label></div>
+<label>SSID<input name="ssid" maxlength="100"></label>
+<div class="row"><label>BSSID<input name="bssid" maxlength="17" placeholder="aa:bb:cc:dd:ee:ff"></label><label>Kanal<input name="channel" type="number" min="1" max="233" placeholder="36"></label></div>
+<label>Notiz<input name="note" maxlength="500" placeholder="z. B. Büro 2, Tür geschlossen"></label>
+<div class="actions"><button class="primary" id="save-point">Messpunkt hinzufügen</button><button id="cancel-edit" type="button" hidden>Abbrechen</button></div>
+</form>
+</section>
+<section><h2>03 <span>Ansicht</span></h2>
+<label>Radio / Messreihe<select id="series"></select></label>
+<div class="row"><label>Zielwert (dBm)<input id="threshold" type="number" min="-127" max="0" value="-67"></label><label><span id="radius-label">Radius (% kurzer Seite)</span><input id="radius" type="number" min="0.1" max="1000" step="any" value="35"></label></div>
+<label class="check"><input id="show-heat" type="checkbox" checked> Heatmap anzeigen</label>
+<div class="actions"><button id="load-csv" type="button">CSV importieren</button><input id="csv-file" type="file" accept=".csv,text/csv" hidden><button id="save-csv" type="button">CSV exportieren</button></div>
+</section>
+</aside>
+<section class="panel view" aria-label="Grundriss und Abdeckung">
+<div class="view-head"><div><p class="eyebrow">COVERAGE MAP</p><h2 id="project-title">Kein Grundriss geladen</h2></div><button id="save-png" type="button">PNG exportieren</button></div>
+<p id="demo-notice" class="demo-note" hidden>Demo · synthetische Messwerte, keine echte WLAN-Abdeckung.</p>
+<div class="stats"><div><small>Messpunkte im Filter</small><strong id="count">0</strong></div><div><small>Median RSSI</small><strong id="median">–</strong></div><div><small>Messpunkte am/über Ziel</small><strong id="coverage">–</strong></div></div>
+<div id="stage" class="stage">
+<div id="empty"><strong>Wo willst du messen?</strong><p>Lade einen PNG-, JPEG- oder WebP-Grundriss oder starte mit der markierten Demo.</p></div>
+<canvas id="map" aria-label="Grundriss mit Messpunkten. Position kann auch über X und Y eingegeben werden." hidden></canvas>
+</div>
+<div class="legend" aria-label="RSSI-Farbstufen"><span><i class="weak"></i> &lt; −75 dBm</span><span><i class="marginal"></i> −75 bis &lt; −67</span><span><i class="fair"></i> −67 bis &lt; −55</span><span><i class="strong"></i> ab −55</span></div>
+<p id="map-note" class="help">Farbflächen sind geschätzte Werte zwischen Messpunkten. Ungefärbte Flächen sind nicht bewertet. Wände werden nicht modelliert.</p>
+<p id="status" role="status" aria-live="polite"></p>
+<h2 class="data-title">Messliste</h2>
+<div class="scroll"><table><thead><tr><th>#</th><th>X / Y (%)</th><th>RSSI</th><th>SSID / Radio</th><th>Kanal</th><th>Notiz</th><th>Aktionen</th></tr></thead><tbody id="points"></tbody></table></div>
+</section>
+</div>
+</main>
+<footer>RSSI misst Signalstärke. Kein Nachweis für SNR, Durchsatz oder Roaming-Qualität. Projekte und Messdaten vor dem Schliessen speichern.</footer>
+</body></html>
